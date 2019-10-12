@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using ElectronNET.CLI.Commands.Actions;
@@ -11,7 +12,8 @@ namespace ElectronNET.CLI.Commands
     {
         public const string COMMAND_NAME = "start";
         public const string COMMAND_DESCRIPTION = "Start your ASP.NET Core Application with Electron, without package it as a single exe. Faster for development.";
-        public const string COMMAND_ARGUMENTS = "<Path> from ASP.NET Core Project.";
+        public static string COMMAND_ARGUMENTS = "<Path> from ASP.NET Core Project." + Environment.NewLine +
+                                                 "Optional: '/app-arguments' with n number arguments to pass to the app";
         public static IList<CommandOption> CommandOptions { get; set; } = new List<CommandOption>();
 
         private string[] _args;
@@ -21,6 +23,8 @@ namespace ElectronNET.CLI.Commands
             _args = args;
         }
 
+        private string _paramAppArguments = "app-arguments";
+
         public Task<bool> ExecuteAsync()
         {
             return Task.Run(() =>
@@ -28,12 +32,21 @@ namespace ElectronNET.CLI.Commands
                 Console.WriteLine("Start Electron Desktop Application...");
 
                 string aspCoreProjectPath = "";
+                var appParams = "";
 
                 if (_args.Length > 0)
                 {
-                    if (Directory.Exists(_args[0]))
+                    if (!_args[0].StartsWith("/") && Directory.Exists(_args[0]))
                     {
                         aspCoreProjectPath = _args[0];
+                    }
+
+                    var parser = new SimpleCommandLineParser();
+                    parser.Parse(_args);
+
+                    if (parser.Arguments.ContainsKey(_paramAppArguments))
+                    {
+                        appParams = string.Join(" ", parser.Arguments[_paramAppArguments].Select(a => $"\"{a}\""));
                     }
                 }
                 else
@@ -84,25 +97,19 @@ namespace ElectronNET.CLI.Commands
                     ProcessHelper.CmdExecute(@"tsc -p ../../ElectronHostHook", tscPath);
                 }
 
-                string path = Path.Combine(tempPath, "node_modules", ".bin");
-
-
-                bool isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-                if (isWindows)
+                var path = Path.Combine(tempPath, "node_modules", ".bin");
+                var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+                var electron = isWindows ? @"electron.cmd" : $"./electron";
+                var script = $"\"..{Path.DirectorySeparatorChar}..{Path.DirectorySeparatorChar}main.js\"";
+                if (!string.IsNullOrWhiteSpace(appParams))
                 {
-                    Console.WriteLine("Invoke electron.cmd - in dir: " + path);
-                    ProcessHelper.CmdExecute(@"electron.cmd ""..\..\main.js""", path);
+                    script = $"{script} {appParams}";
                 }
-                else
-                {
-                    Console.WriteLine("Invoke electron - in dir: " + path);
-                    ProcessHelper.CmdExecute(@"./electron ""../../main.js""", path);
-                }
-
+                var cmd = $"{electron} {script}";
+                Console.WriteLine($"Invoke '{cmd}' - in dir: " + path);
+                ProcessHelper.CmdExecute(cmd, path);
                 return true;
             });
         }
-
-
     }
 }
